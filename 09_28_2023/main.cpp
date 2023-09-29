@@ -4,20 +4,21 @@
 #include <ctime>
 #include <limits>
 
-int callback(void *, int, char **, char **);
-void viewAssignmentsByProject(sqlite3 *);
 void resetStream();
 void codeGradeLoopFix(std::string errLocation);
 int startTransaction(sqlite3 *);
 int commit(sqlite3 *);
 int rollback(sqlite3 *);
+void makeSale(sqlite3 *);
+int pickCustomer(sqlite3 *);
+int makeInvoice(sqlite3 *, int);
 
 int main()
 {
     sqlite3 *db;
     int rc;
 
-    rc = sqlite3_open_v2("ConstructCo.db", &db, SQLITE_OPEN_READWRITE, NULL);
+    rc = sqlite3_open_v2("SaleCo.db", &db, SQLITE_OPEN_READWRITE, NULL);
     if (rc != SQLITE_OK)
     {
         std::cout << "Error opening database: " << sqlite3_errmsg(db) << std::endl;
@@ -28,140 +29,10 @@ int main()
     {
         std::cout << "Database opened successfully." << std::endl;
     }
-    std::string query = "select * from employee";
-    rc = sqlite3_exec(db, query.c_str(), callback, NULL, NULL);
-    if (rc != SQLITE_OK)
-    {
-        std::cout << "There was an error - select callback: " << sqlite3_errmsg(db) << std::endl;
-        std::cout << query << std::endl;
-    }
-    query = "delete from employee where emp_lname = 'Brown' and emp_fname = 'Charlie'";
-    rc = sqlite3_exec(db, query.c_str(), NULL, NULL, NULL);
-    if (rc != SQLITE_OK)
-    {
-        std::cout << "There was an error - delete: " << sqlite3_errmsg(db) << std::endl;
-        std::cout << query << std::endl;
-    }
-    std::string lname, fname, mi;
-    int job, years;
-    char formatDate[80];
-    time_t currentDate = time(NULL);
-    strftime(formatDate, 80, "%F %T", localtime(&currentDate));
-    std::string hiredate(formatDate);
-    lname = "Brown";
-    fname = "Charlie";
-    job = 504;
-    years = 0;
+    makeSale(db);
 
-    query = "insert into employee(emp_lname, emp_fname, emp_hiredate, job_code, emp_years) ";
-    query += "values ('";
-    query += lname + "', '";
-    query += fname + "', '";
-    query += hiredate + "', ";
-    query += std::to_string(job) + ", ";
-    query += std::to_string(years) + ");";
-
-    rc = sqlite3_exec(db, query.c_str(), NULL, NULL, NULL);
-    if (rc != SQLITE_OK)
-    {
-        std::cout << "There was an error - insert: " << sqlite3_errmsg(db) << std::endl;
-        std::cout << query << std::endl;
-    }
-    else
-    {
-        int emp_num = sqlite3_last_insert_rowid(db);
-        std::cout << fname << " " << lname << " inserted into the database as employee number " << emp_num << std::endl;
-    }
-    viewAssignmentsByProject(db);
     sqlite3_close(db);
     return 0;
-}
-
-int callback(void *extData, int numCols, char **values, char **colNames)
-{
-    for (int i = 0; i < numCols; i++)
-    {
-        std::cout << colNames[i] << ": ";
-        if (values[i] != NULL)
-            std::cout << values[i];
-        std::cout << std::endl;
-    }
-    std::cout << std::endl;
-    return SQLITE_OK;
-}
-
-void viewAssignmentsByProject(sqlite3 *db)
-{
-    std::string query;
-    sqlite3_stmt *result;
-    query = "select proj_num, proj_name from project";
-    int rc = sqlite3_prepare_v2(db, query.c_str(), -1, &result, NULL);
-    if (rc != SQLITE_OK)
-    {
-        sqlite3_finalize(result);
-        std::cout << "There was an error with the project query: " << sqlite3_errmsg(db) << std::endl;
-        std::cout << query << std::endl;
-        return;
-    }
-    int columnCount = sqlite3_column_count(result);
-    int i, choice;
-    std::cout << std::left;
-    std::cout << "Please choose the project: " << std::endl;
-    i = 1;
-    do
-    {
-        rc = sqlite3_step(result);
-        if (rc == SQLITE_DONE)
-            break;
-        std::cout << i << ". " << sqlite3_column_text(result, 0);
-        std::cout << " - " << sqlite3_column_text(result, 1);
-        std::cout << std::endl;
-        i++;
-
-    } while (rc == SQLITE_ROW);
-    std::cin >> choice;
-    while (!std::cin || choice < 1 || choice >= i)
-    {
-        codeGradeLoopFix("get project line 122");
-        if (!std::cin)
-            resetStream();
-        std::cout << "That is not a valid choice! Try again!" << std::endl;
-        std::cin >> choice;
-    }
-    sqlite3_reset(result);
-    for (int j = 0; j < choice; j++)
-    {
-        sqlite3_step(result);
-    }
-    int proj_num = sqlite3_column_int(result, 0);
-    sqlite3_finalize(result);
-    query = "select sum(assign_hours) as 'Total Hours', sum(assign_charge) as 'Total Charges' ";
-    query += "from assignment ";
-    query += "where proj_num = " + std::to_string(proj_num);
-    query += " group by proj_num";
-
-    rc = sqlite3_prepare_v2(db, query.c_str(), -1, &result, NULL);
-    if (rc != SQLITE_OK)
-    {
-        sqlite3_finalize(result);
-        std::cout << "There was an error with the assignment query: " << sqlite3_errmsg(db) << std::endl;
-        std::cout << query << std::endl;
-        return;
-    }
-    columnCount = sqlite3_column_count(result);
-    for (rc = sqlite3_step(result); rc == SQLITE_ROW; rc = sqlite3_step(result))
-    {
-        for (int i = 0; i < columnCount; i++)
-        {
-            std::cout << sqlite3_column_name(result, i) << " - ";
-            if (sqlite3_column_type(result, i) != SQLITE_NULL)
-            {
-                std::cout << sqlite3_column_text(result, i);
-            }
-            std::cout << std::endl;
-        }
-    }
-    sqlite3_finalize(result);
 }
 
 void codeGradeLoopFix(std::string errLocation)
@@ -215,4 +86,98 @@ int rollback(sqlite3 *db)
         return rc;
     }
     return SQLITE_OK;
+}
+
+/* make an invoice, which means we need a customer
+   add lines to the invoice, which means we need products,
+   update customer balance
+   update the product qoh
+*/
+void makeSale(sqlite3 *db)
+{
+    int rc = startTransaction(db);
+    if (rc != SQLITE_OK)
+    {
+        std::cout << "unable to start transaction. " << sqlite3_errmsg(db) << std::endl;
+        return;
+    }
+    int cus_code = pickCustomer(db);
+    if (cus_code == -1)
+    {
+        rollback(db);
+        std::cout << "Error picking customer." << std::endl;
+        return;
+    }
+    int invNum = makeInvoice(db, cus_code);
+    if (invNum == -1)
+    {
+        rollback(db);
+        std::cout << "Error making invoice." << std::endl;
+        return;
+    }
+    std::cout << "inserted " << invNum << std::endl;
+    rollback(db);
+}
+
+int pickCustomer(sqlite3 *db)
+{
+    std::string query = "select cus_code, cus_lname || ', ' || cus_fname as name ";
+    query += "from customer";
+    sqlite3_stmt *result;
+    int rc = sqlite3_prepare_v2(db, query.c_str(), -1, &result, NULL);
+    if (rc != SQLITE_OK)
+    {
+        sqlite3_finalize(result);
+        std::cout << "There was an error with the customer query: " << sqlite3_errmsg(db) << std::endl;
+        std::cout << query << std::endl;
+        return -1;
+    }
+    int i, choice;
+    std::cout << "Please choose a customer:" << std::endl;
+    i = 1;
+    for (rc = sqlite3_step(result); rc == SQLITE_ROW; rc = sqlite3_step(result))
+    {
+        std::cout << i << ". " << sqlite3_column_text(result, 0);
+        std::cout << " - " << sqlite3_column_text(result, 1);
+        std::cout << std::endl;
+        i++;
+    }
+    std::cin >> choice;
+    while (!std::cin || choice < 1 || choice >= i)
+    {
+        codeGradeLoopFix("get project lilne 122");
+        if (!std::cin)
+            resetStream();
+        std::cout << "That is not a valid choice! Try again!" << std::endl;
+        std::cin >> choice;
+    }
+    sqlite3_reset(result);
+    for (int i = 0; i < choice; i++)
+        sqlite3_step(result);
+    int cus_code = sqlite3_column_int(result, 0);
+    return cus_code;
+}
+
+int makeInvoice(sqlite3 *db, int customer)
+{
+    char formatDate[80];
+    time_t currentDate = time(NULL);
+    strftime(formatDate, 80, "%F %T", localtime(&currentDate));
+    std::string invDate(formatDate);
+
+    std::string query = "insert into invoice (cus_code, inv_date) values (";
+    query += std::to_string(customer) + ", '";
+    query += invDate + "')";
+    int rc = sqlite3_exec(db, query.c_str(), NULL, NULL, NULL);
+    if (rc != SQLITE_OK)
+    {
+        std::cout << "unable to insert invoice." << sqlite3_errmsg(db) << std::endl;
+        std::cout << query << std::endl;
+        return -1;
+    }
+
+    int invNum = sqlite3_last_insert_rowid(db);
+    return invNum;
+
+    return 0;
 }
